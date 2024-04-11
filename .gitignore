@@ -1,0 +1,6 @@
+# Visual Studio Files
+.vs/
+
+# Compilation Files
+BrRun/bin/
+BrRun/obj/
