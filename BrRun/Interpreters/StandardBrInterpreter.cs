@@ -15,7 +15,7 @@ public class StandardBrInterpreter : BrInterpreterBase
 
     protected int dataPointer;
     protected Stack<long> stack;
-    protected Stack<(int, int)> debugStack;
+    protected Stack<(int, int)> debugOpeningStack;
 
     private int lineNumber;
     private int charNumber;
@@ -28,7 +28,7 @@ public class StandardBrInterpreter : BrInterpreterBase
         tape = new short[TapeLength];
         dataPointer = 0;
         stack = [];
-        debugStack = [];
+        debugOpeningStack = [];
 
         lineNumber = 1;
         charNumber = 0;
@@ -39,8 +39,8 @@ public class StandardBrInterpreter : BrInterpreterBase
         awakeTop = Console.CursorTop;
         if (Context.stepFlag)
         {
-            for (int i = 0; i < 12; i++) Console.WriteLine();
-            awakeTop = Console.CursorTop - 12;
+            for (int i = 0; i < 10; i++) Console.WriteLine();
+            awakeTop = Console.CursorTop - 10;
         }
         reader = new(FilePath, FileMode.Open);
 
@@ -63,7 +63,7 @@ public class StandardBrInterpreter : BrInterpreterBase
                 dataPointer++;
                 if (dataPointer >= TapeLength)
                 {
-                    Console.WriteLine($"warn: data pointer has overflowed! (length {TapeLength})");
+                    Console.WriteLine($"warn L{lineNumber} C{charNumber}: data pointer has overflowed! (length {TapeLength})");
                     dataPointer = 0;
                 }
                 break;
@@ -72,7 +72,7 @@ public class StandardBrInterpreter : BrInterpreterBase
                 dataPointer--;
                 if (dataPointer < 0)
                 {
-                    Console.WriteLine($"warn: data pointer has underflowed! (length {TapeLength})");
+                    Console.WriteLine($"warn L{lineNumber} C{charNumber}: data pointer has underflowed! (length {TapeLength})");
                     dataPointer = TapeLength - 1;
                 }
                 break;
@@ -97,18 +97,32 @@ public class StandardBrInterpreter : BrInterpreterBase
                 break;
 
             case IntentionKind.BeginGroup:
-                if (reader is null) Console.WriteLine("error: file hasn't been opened yet! how did this happen?");
+                if (reader is null) Console.WriteLine($"error L{lineNumber} C{charNumber}: file hasn't been opened yet! how did this happen?");
                 else
                 {
                     stack.Push(reader.Position);
-                    debugStack.Push((lineNumber, charNumber));
+                    debugOpeningStack.Push((lineNumber, charNumber));
+                    if (tape[dataPointer] == 0)
+                    {
+                        // Look for closing brace.
+                        IntentionKind newIntent;
+                        while ((newIntent = StepProgram()) != IntentionKind.EndOfFile)
+                        {
+                            if (newIntent == IntentionKind.EndGroup) break; // Found closing bracket.
+                        }
+                        if (newIntent == IntentionKind.EndOfFile)
+                        {
+                            Console.WriteLine($"error L{lineNumber} C{charNumber}: no closing bracket to match opening bracket.");
+                            return;
+                        }
+                    }
                 }
                 break;
 
             case IntentionKind.EndGroup:
                 if (stack.Count == 0)
                 {
-                    Console.WriteLine("error: no opening bracket to match closing bracket.");
+                    Console.WriteLine($"error L{lineNumber} C{charNumber}: no opening bracket to match closing bracket.");
                     return;
                 }
 
@@ -116,22 +130,22 @@ public class StandardBrInterpreter : BrInterpreterBase
                 {
                     // Exit loop.
                     stack.Pop();
-                    debugStack.Pop();
+                    debugOpeningStack.Pop();
                 }
                 else
                 {
                     // Restart.
-                    if (reader is null) Console.WriteLine("error: file hasn't been opened yet! how did this happen?");
+                    if (reader is null) Console.WriteLine($"error L{lineNumber} C{charNumber}: file hasn't been opened yet! how did this happen?");
                     else reader.Seek(stack.Peek(), SeekOrigin.Begin);
 
-                    (int newL, int newC) = debugStack.Peek();
+                    (int newL, int newC) = debugOpeningStack.Peek();
                     lineNumber = newL;
                     charNumber = newC;
                 }
                 break;
 
             default:
-                Console.WriteLine("warn: unknown intent! how did this happen?");
+                Console.WriteLine($"warn L{lineNumber} C{charNumber}: unknown intent! how did this happen?");
                 break;
         }
     }
@@ -246,10 +260,12 @@ public class StandardBrInterpreter : BrInterpreterBase
         IntentionKind.DecrementValue   => $"Decrease value at position {dataPointer} ({tape[dataPointer]} -> {tape[dataPointer] - 1})",
         IntentionKind.OutputValue      => $"Print out current value as character (value {tape[dataPointer]})",
         IntentionKind.InputValue       => $"Input next character input into position {dataPointer}",
-        IntentionKind.BeginGroup       => "Beginning a loop",
+        IntentionKind.BeginGroup       => tape[dataPointer] == 0
+                                        ? "Skipping loop. Moving execution forward to closing bracket."
+                                        : "Beginning a loop",
         IntentionKind.EndGroup         => tape[dataPointer] == 0
-                                        ? $"Breaking out of group"
-                                        : $"Moving execution back to L{debugStack.Peek().Item1} C{debugStack.Peek().Item2} until value at position {dataPointer} is zero (currently {tape[dataPointer]})",
+                                        ? $"Breaking out of a loop"
+                                        : $"Moving execution back to L{debugOpeningStack.Peek().Item1} C{debugOpeningStack.Peek().Item2} until value at position {dataPointer} is zero (currently {tape[dataPointer]})",
         _                              => "?? unknown intent ??"
     };
 
