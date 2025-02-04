@@ -2,5 +2,5 @@
 .vs/
 
 # Compilation Files
-BrRun/bin/
-BrRun/obj/
+*/bin/
+*/obj/
